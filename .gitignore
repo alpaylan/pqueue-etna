@@ -16,3 +16,8 @@ stack.yaml.lock
 /nix/gcroots
 /nix/ci-out
 /nix/local-config.nix
+
+# etna runner local artifacts
+/.hegel/
+/progress.jsonl
+/etna.log

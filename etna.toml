@@ -1,0 +1,69 @@
+name = "pqueue"
+description = "Reliable, persistent, fast priority queues based on a binomial heap (lspitzner/pqueue). Bug fixes mined from upstream history; modern HEAD is the base, each patch reverse-applies a fix to install the original bug."
+language = "haskell"
+strategies = ["quickcheck", "hedgehog", "falsify", "smallcheck"]
+crate = "pqueue"
+base_commit = "31e537cfe32f950a6271876469549f6d8bd58e9d"
+
+# ---------------------------------------------------------------------------
+# Variant: mapmaybe_buggy_8fd23ba6_1
+# ---------------------------------------------------------------------------
+# Upstream commit 8fd23ba6 (PR #111, 2023-05-04) "Fix mapMaybe and mapEither":
+# the prior implementation of `mapMaybe` and `mapEither` for `MinQueue`,
+# and the analogous functions on `MinPQueue` (`mapMaybeWithKey` /
+# `mapEitherWithKey`), only worked for transforms whose image was
+# already in the source's traversal order — i.e. effectively monotonic
+# transforms.  For non-monotonic transforms the rebuilt heap had its
+# order invariant violated, and `toAscList` returned a permutation of
+# the result instead of the sorted list.
+#
+# The injected variant restores the broken pattern by re-implementing
+# each function as `fromAscList . mapMaybeList . toListU` (and the
+# Either analogue), which ignores the heap-order requirement of
+# `fromAscList` and so produces an invalid heap whenever the post-filter
+# list is not already ascending.
+[[tasks]]
+mutations = ["mapmaybe_buggy_8fd23ba6_1"]
+
+[tasks.source]
+repo = "https://github.com/lspitzner/pqueue"
+commits = ["8fd23ba629b226bbb08c0799b5279a9c9ef3dfa1"]
+commit_subjects = ["Fix mapMaybe and mapEither (#111)"]
+origin = "internal"
+summary = "Min.mapMaybe / Min.mapEither / PMin.mapMaybeWithKey re-fed their result through fromAscList from heap-order-traversal output. For non-monotonic transforms this violates fromAscList's precondition and produces a queue whose toAscList is no longer sorted."
+
+[tasks.injection]
+kind = "patch"
+files = ["src/Data/PQueue/Internals.hs", "src/Data/PQueue/Prio/Internals.hs"]
+locations = [
+  { file = "src/Data/PQueue/Internals.hs", line = 182, symbol = "mapMaybe" },
+  { file = "src/Data/PQueue/Internals.hs", line = 189, symbol = "mapEither" },
+  { file = "src/Data/PQueue/Prio/Internals.hs", line = 332, symbol = "mapMaybeWithKey" },
+]
+patch = "patches/mapmaybe_buggy_8fd23ba6_1.patch"
+
+[tasks.bug]
+short_name = "mapmaybe_breaks_heap_invariant"
+invariant = "For any list xs and Maybe-returning transform f, Min.toAscList (Min.mapMaybe f (Min.fromList xs)) equals List.sort [y | x <- xs, Just y <- [f x]]. Analogous statements hold for Min.mapEither and PMin.mapMaybeWithKey."
+how_triggered = "Reverse-applying the patch swaps the BinomialQueue.insertEager-driven implementations of mapMaybe / mapEither / mapMaybeWithKey for naive `fromAscList . filter . toListU` versions. For any non-monotonic transform on a queue with at least two elements that survive the filter, the result heap's order invariant is broken and toAscList returns the elements in heap order rather than sorted order."
+
+[[tasks.tasks]]
+property = "MapMaybeMinMatchesList"
+witnesses = [
+  { test_fn = "witness_map_maybe_min_matches_list_case_neg_odds",       note = "Min.mapMaybe (negate-odd, drop-even) on [3,1,2,5,4,7,6,8,9] must equal sort [-3,-1,-5,-7,-9]." },
+  { test_fn = "witness_map_maybe_min_matches_list_case_powers_of_two",  note = "Min.mapMaybe (negate-odd, drop-even) on [1,2,4,8,16,3,7,15,31] must equal sort [-1,-3,-7,-15,-31]." },
+]
+
+[[tasks.tasks]]
+property = "MapEitherMinPartitions"
+witnesses = [
+  { test_fn = "witness_map_either_min_partitions_case_mod3", note = "Min.mapEither (Left if mod 3==0 else Right, all negated) on [9,1,6,4,3,2,12,7,0] must split into two sorted queues." },
+  { test_fn = "witness_map_either_min_partitions_case_dense", note = "Min.mapEither on [1,3,2,6,5,9,4,12,11] must split into two sorted queues." },
+]
+
+[[tasks.tasks]]
+property = "PrioMapMaybeWithKey"
+witnesses = [
+  { test_fn = "witness_prio_map_maybe_with_key_case_descending_keys", note = "PMin.mapMaybeWithKey (drop even keys, negate odd) on key-descending input [(9,0),(7,1),(5,2),(3,3),(1,4),(8,5),(4,6)] must return sorted-by-key pairs." },
+  { test_fn = "witness_prio_map_maybe_with_key_case_runs", note = "PMin.mapMaybeWithKey on [(1,10),(2,20),(3,30),(4,40),(5,50),(8,80),(7,70)] must return sorted-by-key pairs." },
+]

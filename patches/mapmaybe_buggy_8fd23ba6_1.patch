@@ -1,0 +1,65 @@
+diff --git b/src/Data/PQueue/Internals.hs a/src/Data/PQueue/Internals.hs
+index 76d29cf..c7abe7b 100644
+--- b/src/Data/PQueue/Internals.hs
++++ a/src/Data/PQueue/Internals.hs
+@@ -180,22 +180,25 @@ unions = foldl' union empty
+ 
+ -- | \(O(n)\). Map elements and collect the 'Just' results.
+ mapMaybe :: Ord b => (a -> Maybe b) -> MinQueue a -> MinQueue b
+-mapMaybe f q = fromAscList (mmList (toListU q))
++mapMaybe _ Empty = Empty
++mapMaybe f (MinQueue _ x ts) = fromBare $ maybe q' (`BQ.insertEager` q') (f x)
+   where
+-    mmList [] = []
+-    mmList (x:xs) = case f x of
+-      Nothing -> mmList xs
+-      Just y  -> y : mmList xs
++    q' = BQ.mapMaybe f ts
+ 
+ -- | \(O(n)\). Map elements and separate the 'Left' and 'Right' results.
+ mapEither :: (Ord b, Ord c) => (a -> Either b c) -> MinQueue a -> (MinQueue b, MinQueue c)
+-mapEither f q = (fromAscList ls, fromAscList rs)
+-  where
+-    (ls, rs) = partE (toListU q)
+-    partE [] = ([], [])
+-    partE (x:xs) = case f x of
+-      Left  y -> case partE xs of (l, r) -> (y:l, r)
+-      Right z -> case partE xs of (l, r) -> (l, z:r)
++mapEither _ Empty = (Empty, Empty)
++mapEither f (MinQueue _ x ts)
++  | (l, r) <- BQ.mapEither f ts
++  = case f x of
++      Left y ->
++        let !l' = fromBare (BQ.insertEager y l)
++            !r' = fromBare r
++        in (l', r')
++      Right z ->
++        let !l' = fromBare l
++            !r' = fromBare (BQ.insertEager z r)
++        in (l', r')
+ 
+ -- | \(O(n)\). Assumes that the function it is given is (weakly) monotonic
+ -- (meaning that @x <= y@ implies @f x <= f y@), and
+diff --git b/src/Data/PQueue/Prio/Internals.hs a/src/Data/PQueue/Prio/Internals.hs
+index fbc2cd4..bf89b48 100644
+--- b/src/Data/PQueue/Prio/Internals.hs
++++ a/src/Data/PQueue/Prio/Internals.hs
+@@ -330,12 +330,12 @@ mapKeysMonoHeap f = mapKeysMonoForest Zeroy
+ 
+ -- | \(O(n)\). Map values and collect the 'Just' results.
+ mapMaybeWithKey :: Ord k => (k -> a -> Maybe b) -> MinPQueue k a -> MinPQueue k b
+-mapMaybeWithKey f q = fromAscList (mmList (toListU q))
+-  where
+-    mmList [] = []
+-    mmList ((k, a):rest) = case f k a of
+-      Nothing -> mmList rest
+-      Just b  -> (k, b) : mmList rest
++mapMaybeWithKey f = fromBare .
++  foldlWithKeyU'
++    (\q k a -> case f k a of
++        Nothing -> q
++        Just b -> insertEagerHeap k b q)
++    Nil
+ {-# INLINABLE mapMaybeWithKey #-}
+ 
+ -- | \(O(n)\). Map values and separate the 'Left' and 'Right' results.
